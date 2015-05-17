@@ -30,10 +30,10 @@ by Veronica Waters, Evan Callahan, Derek Dsouza, Mike Fullmore, and Kevin Bromer
 -->
 <apex:page standardController="Batch__c" extensions="BDE_BatchEntry_CTRL" tabStyle="Batch_Data_Entry__tab" action="{!initializeBatchEntry}">
 
-	<apex:includeScript value="{!URLFOR($Resource.CumulusStaticResources, '/jquery/jquery-1.10.2.min.js')}"/>
-	<apex:includeScript value="{!URLFOR($Resource.CumulusStaticResources, '/jquery/jquery-migrate-1.2.1.min.js')}"/>
-	<apex:includeScript value="{!URLFOR($Resource.CumulusStaticResources, '/jquery-ui/jquery-ui-1.10.4.min.js')}"/>
-	<apex:stylesheet value="{!URLFOR($Resource.CumulusStaticResources, '/jquery-ui/jquery-ui-1.10.4-smoothness.min.css')}"/>
+    <apex:includeScript value="{!URLFOR($Resource.CumulusStaticResources, '/jquery/jquery-1.10.2.min.js')}"/>
+    <apex:includeScript value="{!URLFOR($Resource.CumulusStaticResources, '/jquery/jquery-migrate-1.2.1.min.js')}"/>
+    <apex:includeScript value="{!URLFOR($Resource.CumulusStaticResources, '/jquery-ui/jquery-ui-1.10.4.min.js')}"/>
+    <apex:stylesheet value="{!URLFOR($Resource.CumulusStaticResources, '/jquery-ui/jquery-ui-1.10.4-smoothness.min.css')}"/>
     <apex:includeScript value="{!URLFOR($Resource.CumulusStaticResources, '/BDE_jqtablesorter/BDE_jqtablesorter.min.js')}"/>
     <apex:stylesheet value="{!URLFOR($Resource.CumulusStaticResources, '/BDE_jqtablesorter/style.css')}"/>
 
@@ -154,11 +154,15 @@ by Veronica Waters, Evan Callahan, Derek Dsouza, Mike Fullmore, and Kevin Bromer
                 fieldClass = theCheckbox.id;
                 j$("."+fieldClass).each( function(i, theInput) {
                     var myvalue = theInput.value;
-                    if (!theCheckbox.checked || !theInput.value || theInput.value=='') {
+                    if (theInput.type == 'checkbox')
+                        myvalue = theInput.checked;
+                    if (!theCheckbox.checked || !myvalue || myvalue=='') {
                         if(theInput.id.indexOf('_lkwgt') == -1)
                             delete defaultValues[fieldClass];                                            
                     } else {
-                        defaultValues[fieldClass] = theInput.value;                        
+                        defaultValues[fieldClass] = theInput.value;
+                        if (theInput.type == 'checkbox')
+                            defaultValues[fieldClass] = theInput.checked;
                         // if the input field was a lookup store the Id of the referenced record as well                        
                         var theInputLookup = document.getElementById(theInput.id + '_lkid');
                         if(theInputLookup!=null) {
@@ -177,14 +181,16 @@ by Veronica Waters, Evan Callahan, Derek Dsouza, Mike Fullmore, and Kevin Bromer
         function resetDefaults() {
             // use saved defaults if they exist
             if (defaultValuesSaved != null) {
-	            defaultValues = j$.extend({}, defaultValuesSaved);
-	            defaultValuesLookupIds = j$.extend({}, defaultValuesLookupIdsSaved);
+                defaultValues = j$.extend({}, defaultValuesSaved);
+                defaultValuesLookupIds = j$.extend({}, defaultValuesLookupIdsSaved);
             }
             j$(".defaultCheckbox").each( function(i, theCheckbox) {
                 fieldClass = theCheckbox.id;                
                 j$("."+fieldClass).each( function(i, theInput) {
                     if (defaultValues[fieldClass] != null) {
                         theInput.value = defaultValues[fieldClass];
+                        if (theInput.type == 'checkbox')
+                            theInput.checked = defaultValues[fieldClass];
                         // Set the lookup Id element if the input field is a lookup
                         if(defaultValuesLookupIds[fieldClass] != null) {                      
                             var theInputLookup = document.getElementById(theInput.id + '_lkid');
@@ -226,8 +232,8 @@ by Veronica Waters, Evan Callahan, Derek Dsouza, Mike Fullmore, and Kevin Bromer
             <apex:selectList id="objectSelect" value="{!objName}" size="1">
                 <apex:selectOptions value="{!objectSettingsList}"/>
             </apex:selectList>
-            &nbsp; 
-            <apex:commandButton id="newBatch" value="New Batch" title="Create a new Batch for the selected object" action="{!openBatchEnterPage}"/>   
+            &nbsp;
+            <apex:commandButton id="newBatch" value="New Batch" title="Create a new Batch for the selected object" action="{!openBatchEnterPage}"  rerender="batchinfo" />   
             &nbsp;
             <br/><br/>
             </apex:form>
@@ -248,6 +254,14 @@ by Veronica Waters, Evan Callahan, Derek Dsouza, Mike Fullmore, and Kevin Bromer
                     <apex:OutputLabel for="itemcountfield" value="Batch Size" />
                     <apex:OutputText id="itemcountfield" value="{!itemCount}"/>
                 </apex:PageBlockSectionItem>                                       
+                <apex:PageBlockSectionItem id="object_name">
+                    <apex:OutputLabel for="object_name_field" value="Object Name (Old)" />
+                    <apex:OutputText id="object_name_field" value="{!batch.Object_Name__c}"/>
+                </apex:PageBlockSectionItem>                                       
+                <apex:PageBlockSectionItem id="included_objects">
+                    <apex:OutputLabel for="included_objects_field" value="Included Objects (New)" />
+                    <apex:OutputText id="included_objects_field" value="{!batch.Included_Objects__c}"/>
+                </apex:PageBlockSectionItem>                                       
             </apex:pageBlockSection>
         </apex:outputpanel>
         </apex:pageBlock>      
@@ -261,15 +275,7 @@ by Veronica Waters, Evan Callahan, Derek Dsouza, Mike Fullmore, and Kevin Bromer
                 <apex:commandButton value="Clear" action="{!clear}" immediate="true" rerender="recInfo" oncomplete="getSetUp();" />
             </apex:pageBlockButtons>            
             <apex:pageBlockSection title="Record Information" id="recInfo" columns="2" >
-                <apex:pageblocksectionitem rendered="{!currentItem.renderNPSPContact}">
-                    <apex:outputLabel value="NPSP Contact" style="line-height:25px;" /> 
-                    <apex:outputPanel layout="block" styleclass="sticky" >
-                        <apex:inputField id="npspcontactid" value="{!currentItem.npspocr.ContactID}" required="false" styleClass="sticky-npspcontactid"/> <!-- onblur="storeLookupValue('{!field.fieldname}');" /> -->
-                        <input type="checkbox" id="sticky-npspcontactid" class="defaultCheckbox" style="display:none;" />
-                        <label for="sticky-npspcontactid" class="ui-icon ui-icon-pin-s" style="position:relative;top:0px;">Toggle</label>                                                
-                    </apex:outputPanel>
-                </apex:pageblocksectionitem>             
-             
+                     
                 <apex:repeat var="field" value="{!entryFieldList}" >
                 <apex:pageblocksectionitem >
                     <apex:outputLabel value="{!field.fieldLabel}" style="line-height:25px;" /> 
@@ -285,7 +291,16 @@ by Veronica Waters, Evan Callahan, Derek Dsouza, Mike Fullmore, and Kevin Bromer
         
         <apex:outputPanel id="recList">
         <apex:pageBlock mode="detail" rendered="{!itemCount>0}" >
+
+            <apex:outputText value="Add a new object: "/>         
+            <apex:selectList id="objectSelect" value="{!objName}" size="1">
+                <apex:selectOptions value="{!objectSettingsList}"/>
+            </apex:selectList>
+            &nbsp;
+            <apex:commandButton id="newBatch" value="New Object" title="New Object" action="{!addNewObject}"  rerender="pbEdit" />   
+            
             <apex:pageBlockSection columns="1" title="Saved Record List ({!itemCount} records)">
+    
                 <apex:pageBlockTable var="item" value="{!itemList}" width="90%" >                   
                     <apex:column >
                         <apex:facet name="header">Action</apex:facet>
@@ -294,6 +309,8 @@ by Veronica Waters, Evan Callahan, Derek Dsouza, Mike Fullmore, and Kevin Bromer
                         <apex:commandLink styleclass="delLink" value="del" action="{!item.deleteItem}" immediate="true" rerender="recList,itemCount,batchinfo"  oncomplete="resetDefaults();" />&nbsp;|&nbsp;
                         <apex:commandLink value="view" action="{!item.viewItem}" immediate="true" target="_blank" />
                     </apex:column>
+                    <apex:column value="{!item.sobj}" />
+                    <apex:column value="{!item.sobj['Name']}" />
                     <apex:repeat var="fieldname" value="{!listFieldList}" > 
                         <apex:column value="{!item.sobj[fieldname]}" styleClass="{!fieldname}" />
                     </apex:repeat>
@@ -302,6 +319,7 @@ by Veronica Waters, Evan Callahan, Derek Dsouza, Mike Fullmore, and Kevin Bromer
             </apex:pageBlockSection>
         </apex:pageBlock>
         </apex:outputPanel>
+
     </apex:form>
      
 </apex:page>

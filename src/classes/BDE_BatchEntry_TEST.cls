@@ -59,6 +59,11 @@ private class BDE_BatchEntry_TEST {
         ctrl.save();
         list<Opportunity> listOpp = [select Id, Name from Opportunity where Batch__c = :ctrl.batch.Id];
         system.assertEquals(1, listOpp.size());
+        
+        ctrl.initializeBatchEntryOfObject('Account');
+        system.assertNotEquals(0,ctrl.itemLists.size());
+        system.assertNotEquals(0,ctrl.entryFieldLists.size());
+        system.assertNotEquals(0,ctrl.listFieldLists.size());
     }        
         
     static testMethod void testBatchWithSave() {

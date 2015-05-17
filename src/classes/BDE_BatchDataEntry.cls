@@ -136,9 +136,13 @@ public class BDE_BatchDataEntry {
     // return a map of all objects that support Batch Data Entry
     // key is the object devName, value is the object label
     public static map<string, string> mapDevNameToLabelBDEObjects() {
-    	//return new string[]{'Opportunity','Contact','Lead','Account'};
+    	return mapDevNameToLabelBDEObjectsOf('Batch__c');
+    }
+    
+    // EOF refactored to provide for adding child objects to a batch
+    public static map<string, string> mapDevNameToLabelBDEObjectsOf(string objname) { 
     	map<string, string> mapBDE = new map<string, string>();
-    	Schema.Describesobjectresult dor = UTIL_Describe.getObjectDescribe(UTIL_Namespace.StrTokenNSPrefix('Batch__c'));
+    	Schema.Describesobjectresult dor = UTIL_Describe.getObjectDescribe(UTIL_Namespace.StrTokenNSPrefix(objname));
     	for (Schema.ChildRelationship cr : dor.getChildRelationships()) {
     		// first see if they have a batch__c field
     		Schema.SObjectField sfld = cr.getField();

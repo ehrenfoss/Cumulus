@@ -38,6 +38,7 @@ public with sharing class BDE_BatchEntry_CTRL {
         public boolean displayBatchSection { get; set; }   // could be transient?
         public boolean displayRecInfoSection { get; set; }     // could be transient?
         public boolean displaySettingsSection { get; set; }     // could be transient?
+        public boolean startNewBatch {get; set;}             // EF lazy, can't use presence of objname as the trigger anymore though
         
         public List<SelectOption> objectSettingsList { get; private set; }
         
@@ -46,6 +47,14 @@ public with sharing class BDE_BatchEntry_CTRL {
 
         // could get all this every time, but not a lot of viewstate
         public string objname { get; set; }
+        
+        // EOF set of parent object names included in this batch
+        // and sets of entry and list fields per object name
+        public list<string> objnames {get; set;}
+        public map<string,list<EntryField>> entryFieldLists { get; set; }
+        public map<string,list<string>> listFieldLists { get; set; }
+        public map<string,list<BatchItem>> itemLists { get; set; }
+        
         public string batchLookupField { get; private set; }
         public string pageSubtitle { get; private set; }
         public list<EntryField> entryFieldList { get; private set; }
@@ -59,16 +68,17 @@ public with sharing class BDE_BatchEntry_CTRL {
         
         public BDE_BatchEntry_CTRL(ApexPages.StandardController stdController) {
                 
-                if (stdController.getId() == null)
+                System.debug('EF controller ');    
+                objnames = new List<string>();
+
+                if (stdController.getId() == null) {
                     batch = new Batch__c();
+                    batch.Object_Name__c = ApexPages.currentPage().getParameters().get('obj');
+                    batch.Included_Objects__c = batch.Object_Name__c;
+                }
                 
                 //query dynamically to retrieve any custom fields from the field set
                 else{
-                /*  batch = [select SystemModstamp, OwnerId, Object_Name__c, 
-                            Number_of_Items__c, Name, LastModifiedDate, 
-                            LastModifiedById, IsDeleted, Id, Description__c,
-                            CreatedDate, CreatedById, Batch_Status__c  
-                            from batch__c where id =: stdController.getId()]; */
                     
                     String q = 'select ';
                     Map<String, Schema.SObjectField> batchObjMap = schema.SObjectType.Batch__c.fields.getMap();
@@ -82,16 +92,77 @@ public with sharing class BDE_BatchEntry_CTRL {
                     UTIL_Debug.debug('Q IS: ' + q);
                     q += ' from ' + UTIL_Namespace.StrTokenNSPrefix('Batch__c') + ' where id = \'' + stdController.getId() + '\' limit 1';
                     batch = Database.query(q);        
+
+                    // EOF initialize set of objnames
+                    if (batch.included_objects__c != null) {
+                        objnames = batch.included_objects__c.split(',',-1);
+                    } else if (batch.object_name__c != null) {
+                        objnames.add(batch.object_name__c);
+                    }     
                 }
+
                                     
                 objname = (batch.id != null) ? 
                         batch.object_name__c :
-                        ApexPages.currentPage().getParameters().get('obj');
+                        ApexPages.currentPage().getParameters().get('obj'); 
+                                             
+        }
+        
+        // EOF abstract to function per object
+        // list of field sets per object     
+        public void initializeBatchEntryOfObject(String objname){
+            BDE_BatchDataEntry bde = new BDE_BatchDataEntry(objname);                
+            if (!bde.getStatusMessage().contains(bde.getFailureMessage())){   
+                objname = bde.getObjectName();
+                // what does this check do?                    
+                if(objname!=null) {
+                    batchLookupField = bde.getBatchLookupFieldname();
+                    
+                    String pluralName = BDE_DescribeHelper_UTIL.getObjectDescribe(objname).getLabelPlural();
+                    entryFieldList = new list<EntryField>();
+                    
+                    for (string fn : bde.getEntryFieldList())
+                        entryFieldList.add(new EntryField(objname, fn));
+                    
+                    entryFieldLists.put(objname,entryFieldList);
+                    listFieldLists.put(objname,bde.getListFieldList()); 
+                                 
+                    list<BatchItem> tmpItemList = new list<BatchItem>();
+                    
+                    if (batch.id != null) {
+                        string q = bde.getQueryString();
+                        q += ' where ' + batchLookupField + ' = \'' + batch.id + '\'';
+                          
+                        list<sobject> existingsobjs = database.query(q);
+                        for (sObject existing : existingsobjs) {
+                           tmpItemList.add(new BatchItem(this, existing));
+                        }
+                        itemLists.put(objname,tmpItemList);
+                        // EF not sure if this is a good idea, but allows for itemCount, etc for now
+                        // will there be skew between itemList and itemLists?
+                        itemList.addAll(tmpItemList);
+                    } else {
+                        itemLists.put(objname,new List<BatchItem>());
+                    }
+                }
+            } else{             
+                ApexPages.addMessage(new ApexPages.Message(ApexPages.Severity.Error, bde.getStatusMessage()));
+                displaySettingsSection = false;
+                displayBatchSection = false;
+                displayRecInfoSection = false;
+            }       
         }
         
         public void initializeBatchEntry(){
                
+            System.debug('EF initialize batch entry');    
+               
             bdec = UTIL_CustomSettingsFacade.getBDESettings();
+            
+            entryFieldLists = new Map<String,List<EntryField>>();
+            listFieldLists = new Map<String,List<String>>();
+            itemLists = new Map<String,List<BatchItem>>();
+            itemList = new list<BatchItem>();
             
             //no defaults yet loaded, create one
             if (bdec == null){
@@ -99,80 +170,40 @@ public with sharing class BDE_BatchEntry_CTRL {
                 insert bdec;
             }     
             
-            BDE_BatchDataEntry bde = new BDE_BatchDataEntry(objname);                
+            // EOF iterate over included objects and initialize
+            if (objnames.size() > 0) {
+                for(String obj : objnames) {
+                    System.debug('EOF initializing object: ' + obj);
+                    initializeBatchEntryOfObject(obj);
+                }
+                System.debug('EOF objnames: ' + objnames);
+                System.debug('EOF items: ' + itemLists);
+                System.debug('EOF listfields: ' + listFieldLists);
+                displayBatchSection = true;
+                displayRecInfoSection = true;  
                 
-            if (!bde.getStatusMessage().contains(bde.getFailureMessage())){             
-                objname = bde.getObjectName();
+                if (currentItem == null) {
+                    currentItem = new BatchItem(this,objname);
+                }
+                                  
+            } else {
                     
-                if(objname!=null) {
-                    batchLookupField = bde.getBatchLookupFieldname();
-                    displayBatchSection = bde.getSaveBatch();                       
-                    displayRecInfoSection = true;
-                            
-                    String pluralName = BDE_DescribeHelper_UTIL.getObjectDescribe(objname).getLabelPlural();
-                    pageSubtitle = pluralName;
-                                                    
-                    entryFieldList = new list<EntryField>();
+                System.debug('EOF need object settings, list: ' + objectSettingsList);    
                     
-                    for (string fn : bde.getEntryFieldList())
-                        entryFieldList.add(new EntryField(objname, fn));
-                    
-                    listFieldList = bde.getListFieldList();                   
-                    itemList = new list<BatchItem>();
-                    
-                    if (displayBatchSection) {
-                        // create the batch if it is new
-                        if (batch.id == null) {                                        
-                            batch.name = pluralName + ' ' + system.today().format();
-                            batch.object_name__c = objName;
-                            // we will insert this in the load event
-                        } 
-                        else {
-                            string q = bde.getQueryString();
-                            q += ' where ' + batchLookupField + ' = \'' + batch.id + '\'';
-                          
-                            list<sobject> existingsobjs = database.query(q);
-                    
-                            if (!existingsobjs.isEmpty()){
-                                                                                
-                                //if its opps and npsp, query for the ocrs
-                                //so we can properly backfill the objects in the batch items
-                                if (existingsobjs[0].getSobjectType() == Opportunity.Sobjecttype){
-                                    ocrlookup = new map<id, OpportunityContactRole>();
-                                    list<OpportunityContactRole> ocrlist = [select id, OpportunityID, ContactID from OpportunityContactRole where OpportunityID IN :existingsobjs and isPrimary = true];
-                                    for (OpportunityContactRole ocr : ocrlist){
-                                        ocrlookup.put(ocr.OpportunityID, ocr);
-                                    }                                                                  
-                                }
-                            }
-                            
-                            for (sObject existing : existingsobjs) {
-                                itemList.add(new BatchItem(this, existing));
-                            }       
-                        }
-                    }
-                    
-                    currentItem = new BatchItem(this);
-                } 
-                else{
-                    objectSettingsList = new List<SelectOption>();
-                    map<string, string> mapBDE = BDE_BatchDataEntry.mapDevNameToLabelBDEObjects();
-                    for(String strDevName : mapBDE.keySet()) {
-                        objectSettingsList.add(new SelectOption(strDevName, mapBDE.get(strDevName)));
-                    }
-                    
-                    pageSubtitle = 'Batch Data Entry Home';
-                    displaySettingsSection = true;
-                    displayBatchSection = false;
-                    displayRecInfoSection = false;                          
-                }                       
-            } 
-            else{             
-                ApexPages.addMessage(new ApexPages.Message(ApexPages.Severity.Error, bde.getStatusMessage()));
-                displaySettingsSection = false;
-                displayBatchSection = false;
-                displayRecInfoSection = false;
-            }                
+                pageSubtitle = 'Batch Data Entry Home';
+                displaySettingsSection = true;
+                displayBatchSection = true;
+                displayRecInfoSection = false;  
+            }
+            
+            entryFieldList = entryFieldLists.get(objname);
+            
+            objectSettingsList = new List<SelectOption>();
+            map<string, string> mapBDE = BDE_BatchDataEntry.mapDevNameToLabelBDEObjects();
+            for(String strDevName : mapBDE.keySet()) {
+                objectSettingsList.add(new SelectOption(strDevName, mapBDE.get(strDevName)));
+            }
+            
         }
         
         private void requeryItem(BatchItem item)  {
@@ -199,45 +230,27 @@ public with sharing class BDE_BatchEntry_CTRL {
                         fieldLabel=fieldLabel.substring(0, fieldLabel.length()-2);               
                 }
         }
-        /*
-        public class BatchObject{
-            public Batch__c myBatch{get; set;}
-            BDE_BatchEntry_CTRL mydad;
-            
-            public BatchObject(BDE_BatchEntry_CTRL parentClass, Batch__c theBatch){
-                mydad = parentClass;
-                myBatch = theBatch;
-            }
-            
-            public pageReference loadBatch(){
-                
-                mydad.batch = myBatch;
-                string objname = myBatch.Object_Name__c;
-                string myid = myBatch.id;
-                PageReference pageRef = Page.BDE_BatchEntry;
-                pageRef.getParameters().put('id', myid);
-                pageRef.setRedirect(true);
-                return pageRef;         
-            }
-        } */
-                
+    
         public class BatchItem {
-                
+                                
                 BDE_BatchEntry_CTRL mydad;
                 public integer itemNum { get; private set; }
                 public sobject sobj { get; set; }
                 public boolean renderNPSPContact{get; set;} 
+                public string bi_objname;
+                public List<BatchItem> children { get; set;}
                 
                 //empty object for using the 
                 //ocr ContactID lookup field for NPSP donations
                 public OpportunityContactRole npspocr {get; set;}
-              
-                
                                 
-                public BatchItem(BDE_BatchEntry_CTRL parentClass) {
+                public BatchItem(BDE_BatchEntry_CTRL parentClass,string objname) {
                         mydad = parentClass;       
-                        sobj = BDE_DescribeHelper_UTIL.getPrototypeObject(mydad.objname); //this line needs to be outside the check for displayBatchSection or we get an error on page load for any object where !displayBatchSection          
+                        bi_objname = objname;
+                        
+                        sobj = BDE_DescribeHelper_UTIL.getPrototypeObject(objname); //this line needs to be outside the check for displayBatchSection or we get an error on page load for any object where !displayBatchSection          
                         renderNPSPContact = false;
+                        
                         if (mydad.displayBatchSection) {
                             sobj.put(mydad.batchLookupField, parentClass.batch.id);
                         }
@@ -246,12 +259,15 @@ public with sharing class BDE_BatchEntry_CTRL {
                         if (mydad.objname == 'opportunity'){
                             npspocr = new OpportunityContactRole();
                             renderNPSPContact = true;
-                        }                        
+                        }   
+                                             
                 }
                 
                 public BatchItem(BDE_BatchEntry_CTRL parentClass, sobject existingItem) {
                     mydad = parentClass;
                     sobj = existingItem;
+                    bi_objname = sobj.getsObjectType().getDescribe().getName();
+                    
                     renderNPSPContact = false;
                     //get the actual primary ocr for this npsp opp
                     if(sobj.getSObjectType() == Opportunity.Sobjecttype && mydad.ocrlookup != null){
@@ -263,6 +279,11 @@ public with sharing class BDE_BatchEntry_CTRL {
                 public pageReference editItem() {
                     // load this item into data entry section
                     myDad.currentItem = this;
+                    myDad.objname = this.bi_objname;
+                    myDad.entryFieldList = myDad.entryFieldLists.get(this.bi_objname);
+                    System.debug('EOF editItem objname ' + this.bi_objname);
+                    System.debug('EOF editItem entryFieldList ' + myDad.entryFieldList);
+                    
                     return null;
                 }
                 
@@ -291,8 +312,8 @@ public with sharing class BDE_BatchEntry_CTRL {
                         if (accid != null){
                            namestring += [select Name from Account where id = :accid].Name;
                         }
-                    }
-                    
+                    } 
+                     
                     date oppdate = (date)sobj.get('CloseDate');
                     namestring += ' ' + oppdate.format();
                     
@@ -307,13 +328,14 @@ public with sharing class BDE_BatchEntry_CTRL {
         
         /***** OTHER CONTROLLER METHODS ******/
         
-        public pageReference saveBatch() {      	
-        	Savepoint sp = Database.setSavepoint();      	
-        	try {
-        		TDTM_Runnable.DmlWrapper dmlWrapper = new TDTM_Runnable.DmlWrapper();
+        public pageReference saveBatch() {          
+            Savepoint sp = Database.setSavepoint();         
+            try {
+                TDTM_Runnable.DmlWrapper dmlWrapper = new TDTM_Runnable.DmlWrapper();
                 // if we are using batch, save the batch                
                 if (displayBatchSection && itemList!=null) {
                     batch.number_of_items__c = itemList.size();
+                    batch.Included_Objects__c = String.join(objnames,',');
 
                     if (batch.id == null)
                         dmlWrapper.objectsToInsert.add(batch);
@@ -321,17 +343,17 @@ public with sharing class BDE_BatchEntry_CTRL {
                         dmlWrapper.objectsToUpdate.add(batch);
                 }
                 TDTM_TriggerHandler.processDML(dmlWrapper);
-        	
-        	} catch(Exception e) {
-        		Database.rollback(sp);
+            
+            } catch(Exception e) {
+                Database.rollback(sp);
                 ERR_Handler.processError(e, batch, ERR_Handler.Context.BDE);
                 ApexPages.addMessage(new ApexPages.Message(ApexPages.Severity.ERROR, e.getMessage()));  
-        	}
+            }
             return null;
         }
         
         public pageReference save() {
-        	Savepoint sp = Database.setSavepoint();
+            Savepoint sp = Database.setSavepoint();
             
             try {
                 if (currentItem.sobj.id != null) {
@@ -374,7 +396,8 @@ public with sharing class BDE_BatchEntry_CTRL {
                 
                 // update the current item, in case any triggers modified values we will display.
                 requeryItem(currentItem);
-                currentItem = new BatchItem(this);
+                // ef fixme later
+                currentItem = new BatchItem(this,currentItem.sobj.getSObjectType().getDescribe().getName());
                 return null; 
             } catch(Exception e) {
                 Database.rollback(sp);
@@ -385,12 +408,13 @@ public with sharing class BDE_BatchEntry_CTRL {
         }
 
         public pageReference clear() {
-                currentItem = new BatchItem(this);
+                // ef this might break?
+                currentItem = null;
                 return null;
         }
         
         public void deleteItem(sobject sobj) {
-        	Savepoint sp = Database.setSavepoint();
+            Savepoint sp = Database.setSavepoint();
             try {
                 delete sobj;
                 for (integer i = 0; i < itemList.size(); i++) {
@@ -401,16 +425,35 @@ public with sharing class BDE_BatchEntry_CTRL {
                 }
                 saveBatch();
             } catch(Exception e) {
-			    Database.rollback(sp);
-			    ERR_Handler.processError(e, ERR_Handler.Context.BDE);
-			    ApexPages.addMessage(new ApexPages.Message(ApexPages.Severity.ERROR, e.getMessage()));
-			}        
+                Database.rollback(sp);
+                ERR_Handler.processError(e, ERR_Handler.Context.BDE);
+                ApexPages.addMessage(new ApexPages.Message(ApexPages.Severity.ERROR, e.getMessage()));
+            }        
         }
         
         public pageReference openBatchEnterPage() {
             PageReference pageRef = Page.BDE_BatchEntry;
+            startNewBatch = true;
             pageRef.getParameters().put('obj', objName);
             pageRef.setRedirect(true);
             return pageRef;         
+        }      
+        
+        public pageReference addNewObject() {
+            PageReference pageRef = Page.BDE_BatchEntry;
+            currentItem = new BatchItem(this,objName);
+            boolean objExists = false;
+            for(String obj : objnames) {
+                if (obj == objName) { objExists = true; }
+            }            
+            if (!objExists) 
+                objnames.add(objName);
+                
+            initializeBatchEntry();
+            entryFieldList = entryFieldLists.get(objName);
+            System.debug('EOF entry field list add new object ' + entryFieldList);
+            //pageRef.setRedirect(true);
+            return pageRef;
         }             
+       
 }
