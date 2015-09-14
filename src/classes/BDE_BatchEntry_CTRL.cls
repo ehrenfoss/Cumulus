@@ -40,7 +40,8 @@ public with sharing class BDE_BatchEntry_CTRL {
         public boolean displaySettingsSection { get; set; }     // could be transient?
         public boolean startNewBatch {get; set;}             // EF lazy, can't use presence of objname as the trigger anymore though
         
-        public List<SelectOption> objectSettingsList { get; private set; }
+        public List<SelectOption> parentObjectsList { get; private set; }
+        public List<SelectOption> childObjectsList { get; private set; }
         
         public BatchItem currentItem { get; set; }   // could be transient - already getting it on edit, otherwise should be clear (what about errors?)
         public list<BatchItem> itemList { get; set; }   // could be transient - would need list of ids instead
@@ -105,7 +106,12 @@ public with sharing class BDE_BatchEntry_CTRL {
                 objname = (batch.id != null) ? 
                         batch.object_name__c :
                         ApexPages.currentPage().getParameters().get('obj'); 
-                                             
+
+	            childObjectsList = new List<SelectOption>();
+	            map<string, string> mapBDE = BDE_BatchDataEntry.mapDevNameToLabelBDEObjectsOf(objname);
+	            for(String strDevName : mapBDE.keySet()) {
+	                childObjectsList.add(new SelectOption(strDevName, mapBDE.get(strDevName)));
+	            }                                             
         }
         
         // EOF abstract to function per object
@@ -188,7 +194,7 @@ public with sharing class BDE_BatchEntry_CTRL {
                                   
             } else {
                     
-                System.debug('EOF need object settings, list: ' + objectSettingsList);    
+                System.debug('EOF need object settings, list: ' + parentObjectsList);    
                     
                 pageSubtitle = 'Batch Data Entry Home';
                 displaySettingsSection = true;
@@ -198,10 +204,10 @@ public with sharing class BDE_BatchEntry_CTRL {
             
             entryFieldList = entryFieldLists.get(objname);
             
-            objectSettingsList = new List<SelectOption>();
+            parentObjectsList = new List<SelectOption>();
             map<string, string> mapBDE = BDE_BatchDataEntry.mapDevNameToLabelBDEObjects();
             for(String strDevName : mapBDE.keySet()) {
-                objectSettingsList.add(new SelectOption(strDevName, mapBDE.get(strDevName)));
+                parentObjectsList.add(new SelectOption(strDevName, mapBDE.get(strDevName)));
             }
             
         }
@@ -439,17 +445,23 @@ public with sharing class BDE_BatchEntry_CTRL {
             return pageRef;         
         }      
         
-        public pageReference addNewObject() {
+        public pageReference addNewItem() {
+        	/* this method should allow for a new item to be added to the batch (but not yet saved)
+        	   for some reason the commandButton has to be clicked twice... */
+        	
             PageReference pageRef = Page.BDE_BatchEntry;
             currentItem = new BatchItem(this,objName);
+            
+            // are we adding a new type of object?
             boolean objExists = false;
             for(String obj : objnames) {
                 if (obj == objName) { objExists = true; }
             }            
-            if (!objExists) 
+            if (!objExists) {
                 objnames.add(objName);
-                
-            initializeBatchEntry();
+	            initializeBatchEntry();
+            }
+            
             entryFieldList = entryFieldLists.get(objName);
             System.debug('EOF entry field list add new object ' + entryFieldList);
             //pageRef.setRedirect(true);

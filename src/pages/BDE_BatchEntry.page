@@ -230,7 +230,7 @@ by Veronica Waters, Evan Callahan, Derek Dsouza, Mike Fullmore, and Kevin Bromer
             <apex:form >
             <apex:outputText value="Select the object that you want to batch enter: "/>         
             <apex:selectList id="objectSelect" value="{!objName}" size="1">
-                <apex:selectOptions value="{!objectSettingsList}"/>
+                <apex:selectOptions value="{!parentObjectsList}"/>
             </apex:selectList>
             &nbsp;
             <apex:commandButton id="newBatch" value="New Batch" title="Create a new Batch for the selected object" action="{!openBatchEnterPage}"  rerender="batchinfo" />   
@@ -292,12 +292,15 @@ by Veronica Waters, Evan Callahan, Derek Dsouza, Mike Fullmore, and Kevin Bromer
         <apex:outputPanel id="recList">
         <apex:pageBlock mode="detail" rendered="{!itemCount>0}" >
 
-            <apex:outputText value="Add a new object: "/>         
+            <apex:outputText value="Add a new item: "/>         
             <apex:selectList id="objectSelect" value="{!objName}" size="1">
-                <apex:selectOptions value="{!objectSettingsList}"/>
+                <apex:selectOptions value="{!childObjectsList}"/>
             </apex:selectList>
             &nbsp;
-            <apex:commandButton id="newBatch" value="New Object" title="New Object" action="{!addNewObject}"  rerender="pbEdit" />   
+            <apex:commandButton id="newItem" value="New Item" title="New Item" action="{!addNewItem}"  rerender="pbEdit" status="newItemStatus" />   
+<apex:actionStatus startText=" (doing it...)" stopText=" (done)" id="newItemStatus"/>
+<!--             <apex:actionFunction name="setupNewObject" action="{!addNewObject}"  rerender="none" onComplete="completeNewObject" />   
+            <apex:actionFunction name="completeNewObject" rerender="pbEdit" /> -->
             
             <apex:pageBlockSection columns="1" title="Saved Record List ({!itemCount} records)">
     
